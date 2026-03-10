@@ -1,0 +1,11 @@
+# Emacs.gitignore
+*~
+\#*\#
+.\#*
+
+# Python.gitignore
+__pycache__/
+*.py[codz]
+*$py.class
+*.egg-info/
+*.egg
