@@ -30,7 +30,7 @@ jobs:
       shell: bash
       run: |
         python -m pip install --upgrade pip
-        pip install numpy h5py pandas pydantic pyyaml typing-extensions
+        pip install numpy scipy h5py pandas pydantic pyyaml typing-extensions
         pip install --no-deps .
     - name: Test with unittest
       shell: bash
