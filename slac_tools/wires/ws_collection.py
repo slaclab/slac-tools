@@ -16,7 +16,7 @@ from slac_tools.beam_profile import BeamProfileMeasurement
 from slac_tools.buffer_reservation import reserve_buffer
 from slac_tools.tmit_loss import TMITLoss
 from slac_tools.utils import collect_with_size_check
-from slac_tools.ws_collection_results import (
+from slac_tools.wires.ws_collection_results import (
     MeasurementMetadata,
     WireMeasurementCollectionResult,
 )

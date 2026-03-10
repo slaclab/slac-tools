@@ -9,8 +9,8 @@ from pydantic import (
 )
 from typing import Optional
 
-from slac-tools.utils import NDArrayAnnotatedType
-import lcls_tools
+from slac_tools.utils import NDArrayAnnotatedType
+import slac_tools
 
 
 class BeamProfileMeasurementResult(slac_tools.BaseModel):

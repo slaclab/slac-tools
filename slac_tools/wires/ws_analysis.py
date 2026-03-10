@@ -2,9 +2,9 @@ import numpy as np
 from pydantic import ConfigDict
 import warnings
 
-import lcls_tools.common.model.gaussian as gaussian
+import slac_tools.model.gaussian as gaussian
 from slac_tools.beam_profile import BeamProfileAnalysis
-from slac_tools.ws_analysis_results import (
+from slac_tools.wires.ws_analysis_results import (
     DetectorFit,
     DetectorProfileMeasurement,
     FitResult,
