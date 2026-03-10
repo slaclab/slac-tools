@@ -31,10 +31,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install numpy scipy h5py pandas pydantic pyyaml typing-extensions
+        pip install pytest
         pip install --no-deps .
-    - name: Test with unittest
+    - name: Test with pytest
       shell: bash
       run: |
         echo -e '## Test results\n\n```' >> "$GITHUB_STEP_SUMMARY"
-        python -m unittest discover -s tests -v 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+        python -m pytest -v 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
         echo '```' >> "$GITHUB_STEP_SUMMARY"
