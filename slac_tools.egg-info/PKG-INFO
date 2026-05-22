@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: slac-tools
+Version: 0.1.0
+Summary: Shared utilities for SLAC high-level applications
+Author: The Board of Trustees of the Leland Stanford Junior University, through SLAC National Accelerator Laboratory
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Natural Language :: English
+Classifier: Programming Language :: Python
+Classifier: Topic :: Scientific/Engineering
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pyepics
+Dynamic: license-file
+
+# slac-tools
+Python tools for SLAC accelerator device control (PV based), and basic physics measurements.
