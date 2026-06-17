@@ -32,6 +32,11 @@ class LazyPV:
     def remove_callback(self, *args, **kwargs):
         return self._ensure_connected().remove_callback(*args, **kwargs)
 
+    def disconnect(self):
+        if self._pv is not None:
+            self._pv.disconnect()
+            self._pv = None
+
     def __eq__(self, other):
         if isinstance(other, LazyPV):
             return self._pvname == other._pvname
