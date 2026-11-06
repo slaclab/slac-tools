@@ -119,7 +119,13 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20):
     at = _resolve_date_time(date_time)
 
     if batch_n <= 0:
-        return get_data_at_time(pvs, at=at, timeout=timeout)
+        result = get_data_at_time(pvs, at=at, timeout=timeout)
+        missing = [pv for pv in pvs if result.get(pv) is None]
+        if missing:
+            raise ValueError(
+                f"no archived value for {len(missing)} PV(s): {missing}"
+            )
+        return result
 
     def _fetch_chunk(chunk, label):
         max_attempts = 3
