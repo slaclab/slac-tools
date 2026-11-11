@@ -5,7 +5,9 @@ real control-system data.  Expect it to be absorbed into a broader
 live-modeling module later; for now, keep it narrow and dependency-light.
 """
 
+import ast
 import logging
+import re
 from datetime import datetime
 
 log = logging.getLogger(__name__)
@@ -70,7 +72,39 @@ def get_live(pvs):
     return dict(zip(pvs, values))
 
 
-def get_archived(pvs, date_time, batch_n=0, timeout=20):
+def _missing_pvs_from_error(exc):
+    """Return the PV names listed in meme's missing-PV error, or ``[]``.
+
+    ``meme.archive.get_data_at_time`` discards the whole response when any
+    PV is absent, and only reports which ones in the exception message.
+    """
+    match = re.search(r"not found in archiver response: (\[.*\])\s*$", str(exc))
+    if match is None:
+        return []
+    return ast.literal_eval(match.group(1))
+
+
+def _get_data_allow_missing(get_data_at_time, error_type, pvs, at, timeout):
+    """Call ``get_data_at_time``, re-requesting without PVs the archiver lacks.
+
+    Returns a mapping of every PV in *pvs* → value, with ``None`` for PVs
+    that are not archived.  Errors that are not about missing PVs propagate.
+    """
+    remaining = list(pvs)
+    found = {}
+    while remaining:
+        try:
+            found = get_data_at_time(remaining, at=at, timeout=timeout)
+            break
+        except error_type as exc:
+            missing = set(_missing_pvs_from_error(exc)) & set(remaining)
+            if not missing:
+                raise
+            remaining = [pv for pv in remaining if pv not in missing]
+    return {pv: found.get(pv) for pv in pvs}
+
+
+def get_archived(pvs, date_time, batch_n=0, timeout=20, allow_missing=False):
     """Fetch archived EPICS values at a single point in time.
 
     Reads from the LCLS Archiver Appliance via
@@ -98,11 +132,16 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20):
         PVs are fetched in a single call with no retry logic.
     timeout : float, optional
         Per-call timeout forwarded to ``get_data_at_time`` (default 20).
+    allow_missing : bool, optional
+        If True, PVs with no archived value are returned as ``None``
+        instead of raising.  Other archiver
+        failures still raise.  Default False.
 
     Returns
     -------
     dict
-        Mapping of PV name → value.
+        Mapping of PV name → value.  With ``allow_missing=True``, PVs with
+        no archived value map to ``None``.
 
     Raises
     ------
@@ -110,16 +149,27 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20):
         If a batch chunk fails all 3 retries, or if the archiver
         responds successfully but any requested PV has no archived
         value (short-circuits — missing-PV failures are not retried).
-    meme.archive.ArchiveRetrievalError
+        Not raised for missing PVs when ``allow_missing`` is True.
+    meme.archive.archive.ArchiveRetrievalError
         If the archiver request fails in the no-batch path.
     """
     import requests
-    from meme.archive import ArchiveRetrievalError, get_data_at_time
+    # ArchiveRetrievalError is not in meme.archive's __all__, so import it from the submodule
+    from meme.archive.archive import ArchiveRetrievalError, get_data_at_time
 
     at = _resolve_date_time(date_time)
 
+    def _fetch(chunk):
+        if allow_missing:
+            return _get_data_allow_missing(
+                get_data_at_time, ArchiveRetrievalError, chunk, at, timeout
+            )
+        return get_data_at_time(chunk, at=at, timeout=timeout)
+
     if batch_n <= 0:
-        result = get_data_at_time(pvs, at=at, timeout=timeout)
+        result = _fetch(pvs)
+        if allow_missing:
+            return result
         missing = [pv for pv in pvs if result.get(pv) is None]
         if missing:
             raise ValueError(
@@ -131,7 +181,7 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20):
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
-                chunk_result = get_data_at_time(chunk, at=at, timeout=timeout)
+                chunk_result = _fetch(chunk)
                 break
             except (ArchiveRetrievalError, requests.RequestException) as exc:
                 if attempt == max_attempts:
@@ -143,6 +193,8 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20):
                     "%s: attempt %d/%d failed (%s), retrying...",
                     label, attempt, max_attempts, exc,
                 )
+        if allow_missing:
+            return chunk_result
         missing = [pv for pv in chunk if chunk_result.get(pv) is None]
         if missing:
             raise ValueError(
