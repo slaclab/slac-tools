@@ -8,8 +8,8 @@ live-modeling module later; for now, keep it narrow and dependency-light.
 import ast
 import logging
 import re
-from datetime import datetime
-
+from datetime import datetime, timezone
+import slac_db.device
 log = logging.getLogger(__name__)
 
 
@@ -208,3 +208,24 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20, allow_missing=False):
     for idx, chunk in enumerate(chunks, start=1):
         result.update(_fetch_chunk(chunk, label=f"Batch {idx}/{n_chunks}"))
     return result
+
+
+def get_archived_values_for_pvs(
+    pv_names: list[str], at_time: str | datetime | None = None
+) -> dict:
+    if at_time is None:
+        at_time = datetime.now(timezone.utc)
+
+    return get_archived(pv_names, at_time, allow_missing=True)
+
+
+def get_archived_values_for_device(
+    device_name: str, at_time: str | datetime | None = None
+) -> dict:
+    accessor_to_pv = slac_db.device.get_all_accessors(device_name)
+    pv_to_value = get_archived_values_for_pvs(list(accessor_to_pv.values()), at_time)
+
+    return {
+        accessor_name: {"pv": pv_name, "value": pv_to_value[pv_name]}
+        for accessor_name, pv_name in accessor_to_pv.items()
+    }
