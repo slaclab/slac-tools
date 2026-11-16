@@ -8,8 +8,8 @@ live-modeling module later; for now, keep it narrow and dependency-light.
 import ast
 import logging
 import re
-from datetime import datetime
-
+from datetime import datetime, timezone
+import slac_db.device
 log = logging.getLogger(__name__)
 
 
@@ -208,3 +208,37 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20, allow_missing=False):
     for idx, chunk in enumerate(chunks, start=1):
         result.update(_fetch_chunk(chunk, label=f"Batch {idx}/{n_chunks}"))
     return result
+
+
+def get_archived_values_for_device(
+    device_name: str, at_time: str | datetime | None = None
+) -> dict:
+    """Fetch archived values for every accessor PV of a device.
+
+    Looks up the device's accessors via ``slac_db.device.get_all_accessors``
+    and fetches their PVs with ``get_archived(..., allow_missing=True)``.
+
+    Parameters
+    ----------
+    device_name : str
+        MAD name of the device, e.g. ``'QE04'``.
+    at_time : str or datetime, optional
+        The instant to fetch values at, in any format accepted by
+        ``get_archived``.  Defaults to now (UTC).
+
+    Returns
+    -------
+    dict
+        Mapping of accessor name → ``{'pv': pv_name, 'value': value}``, e.g.
+        ``{'bdes': {'pv': 'QUAD:IN20:525:BDES', 'value': -3.37}}``.
+        PVs with no archived value have ``'value': None``.
+    """
+    if at_time is None:
+        at_time = datetime.now(timezone.utc)
+    accessor_to_pv = slac_db.device.get_all_accessors(device_name)
+    pv_to_value = get_archived(list(accessor_to_pv.values()), at_time, allow_missing=True)
+
+    return {
+        accessor_name: {"pv": pv_name, "value": pv_to_value[pv_name]}
+        for accessor_name, pv_name in accessor_to_pv.items()
+    }
