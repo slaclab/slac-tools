@@ -210,20 +210,13 @@ def get_archived(pvs, date_time, batch_n=0, timeout=20, allow_missing=False):
     return result
 
 
-def get_archived_values_for_pvs(
-    pv_names: list[str], at_time: str | datetime | None = None
-) -> dict:
-    if at_time is None:
-        at_time = datetime.now(timezone.utc)
-
-    return get_archived(pv_names, at_time, allow_missing=True)
-
-
 def get_archived_values_for_device(
     device_name: str, at_time: str | datetime | None = None
 ) -> dict:
+    if at_time is None:
+        at_time = datetime.now(timezone.utc)
     accessor_to_pv = slac_db.device.get_all_accessors(device_name)
-    pv_to_value = get_archived_values_for_pvs(list(accessor_to_pv.values()), at_time)
+    pv_to_value = get_archived(list(accessor_to_pv.values()), at_time, allow_missing=True)
 
     return {
         accessor_name: {"pv": pv_name, "value": pv_to_value[pv_name]}
