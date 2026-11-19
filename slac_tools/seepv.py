@@ -1,148 +1,117 @@
-"""Print the EPICS record definition for an exact PV name.
+"""Return the EPICS record definition for an exact PV name.
 
 Python port of the "seepv" bash script.  Given a full, exact PV name,
-locate the IOC(s) serving it (via "findpv") and print that PV's record
-definition from each IOC's "$IOC_DATA/<ioc>/iocInfo/IOC.dbDumpRecord"
+locate the IOC serving it (via "findpv") and return that PV's record
+definition from the IOC's "$IOC_DATA/<ioc>/iocInfo/IOC.dbDumpRecord"
 file.
 
 The PV name must be a complete 1:1 match with an existing PV.  No
 wildcards or partial names are accepted.
 
-Usage:
-    python seepv.py PVNAME
-
 Author: Chris Myers, 11/16/2026
 """
 
-import argparse
 import os
 import re
 import shutil
 import subprocess
-import sys
 
-WILDCARD_CHARS = ("%", "*")
+class SeePV:
+    WILDCARD_CHARS = ("%", "*")
 
+    def __init__(self):
+        """Raises FileNotFoundError if "findpv" cannot be found on "PATH".
+        Raises OSError if "IOC_DATA" is not set.
+        """
 
-def find_iocs(pv, findpv=None):
-    """Return a sorted list of IOC names serving exactly "pv".
+        self.findpv = shutil.which("findpv")
+        if not self.findpv:
+            raise FileNotFoundError("findpv not found on PATH.")
 
-    Runs "findpv -s <pv>", which prints "<ioc> <pvname>" lines for
-    substring matches, and keeps only lines whose PV name equals "pv".
+        self.ioc_data = os.environ.get("IOC_DATA")
+        if not self.ioc_data:
+            raise OSError("IOC_DATA is not set.")
 
-    Raises FileNotFoundError if "findpv" cannot be found on "PATH".
-    """
-    findpv = findpv or shutil.which("findpv")
-    if not findpv:
-        raise FileNotFoundError("findpv not found on PATH.")
-    result = subprocess.run(
-        [findpv, "-s", pv],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
-    iocs = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) >= 2 and fields[1] == pv:
-            iocs.add(fields[0])
-    return sorted(iocs)
+    def find_iocs(self, pv):
+        """Return a list of IOC names serving exactly "pv".
 
+        Runs "findpv -s <pv>", which prints "<ioc> <pvname>" lines for
+        substring matches, and keeps only lines whose PV name equals "pv".
+        """
+        result = subprocess.run(
+            [self.findpv, "-s", pv],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        iocs = []
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 2 and fields[1] == pv:
+                iocs.append(fields[0])
+        return list(dict.fromkeys(iocs))
 
-def dump_record_path(ioc, ioc_data=None):
-    """Return the path to an IOC's "IOC.dbDumpRecord" file."""
-    ioc_data = ioc_data if ioc_data is not None else os.environ.get("IOC_DATA", "")
-    return os.path.join(ioc_data, ioc, "iocInfo", "IOC.dbDumpRecord")
+    def dump_record_path(self, ioc, ioc_data=None):
+        """Return the path to an IOC's "IOC.dbDumpRecord" file."""
+        ioc_data = ioc_data if ioc_data is not None else self.ioc_data
+        return os.path.join(ioc_data, ioc, "iocInfo", "IOC.dbDumpRecord")
 
+    def extract_record(self, db_lines, pv):
+        """Return the record block for "pv" from dbDumpRecord "db_lines".
 
-def extract_record(lines, pv):
-    """Return the record block for "pv" from dbDumpRecord "lines".
+        Starts at the "record(<type>, "<pv>")" header and tracks brace depth
+        until the block closes.  Returns a list of lines (without trailing
+        newlines); empty if no matching record is found.
+        """
+        header = re.compile(r'^record\s*\([^,]*,\s*"' + re.escape(pv) + r'"\s*\)')
+        record = []
+        in_record = False
+        depth = 0
+        opened = False
+        for line in db_lines:
+            line = line.rstrip("\n")
+            if not in_record and header.search(line):
+                in_record, depth, opened = True, 0, False
+            if in_record:
+                record.append(line)
+                n_open = line.count("{")
+                depth += n_open - line.count("}")
+                if n_open:
+                    opened = True
+                if opened and depth <= 0:
+                    in_record = False
+                    break
+        return record
 
-    Starts at the "record(<type>, "<pv>")" header and tracks brace depth
-    until the block closes.  Returns a list of lines (without trailing
-    newlines); empty if no matching record is found.
-    """
-    header = re.compile(r'^record\s*\([^,]*,\s*"' + re.escape(pv) + r'"\s*\)')
-    out = []
-    in_rec = False
-    depth = 0
-    opened = False
-    for line in lines:
-        line = line.rstrip("\n")
-        if not in_rec and header.search(line):
-            in_rec, depth, opened = True, 0, False
-        if in_rec:
-            out.append(line)
-            n_open = line.count("{")
-            depth += n_open - line.count("}")
-            if n_open:
-                opened = True
-            if opened and depth <= 0:
-                in_rec = False
-    return out
+    def see_record(self, pv):
+        """Return the record definition given a PV name.
+        If a PV is found on more than one IOC, only the record on the first IOC
+        returned by findpv is returned.
+        Raises ValueError if "pv" is empty or contains wildcard characters.
+        Raises LookupError if no IOC is found or if the record is not found in the IOC's
+        .dbDumpRecord file.
+        Raises FileNotFoundError if the .dbDumpRecord file does not exist.
+        Raises subprocess.CalledProcessError if findpv exits with an error.
+        """
+        if not pv:
+            raise ValueError("PV name must be provided.")
 
+        if any(c in pv for c in self.WILDCARD_CHARS):
+            raise ValueError(f"PV name '{pv}' contains wildcard characters; exact PV name required.")
 
-def _bold(text):
-    if sys.stdout.isatty():
-        return f"\033[1m{text}\033[0m"
-    return text
+        iocs = self.find_iocs(pv)
 
+        if not iocs:
+            raise LookupError(f"No PV exactly matching '{pv}' was found.")
 
-def build_parser():
-    parser = argparse.ArgumentParser(
-        prog="seepv",
-        description="Print the EPICS record definition for an exact PV name.",
-        epilog="Note: PVNAME must be a full, exact match "
-        "(no wildcards or partial names).",
-    )
-    parser.add_argument("pv", metavar="PVNAME", nargs="?", help="exact PV name")
-    return parser
-
-
-def main(argv=None):
-    args = build_parser().parse_args(argv)
-    pv = args.pv
-
-    if not pv:
-        print("Invalid PV name. See help (-h).")
-        return 1
-
-    if any(c in pv for c in WILDCARD_CHARS):
-        print("\nseepv requires a full, exact PV name (no wildcards).\n")
-        return 1
-
-    try:
-        iocs = find_iocs(pv)
-    except FileNotFoundError as exc:
-        print(f"Error: {exc}")
-        return 1
-
-    if not iocs:
-        print(f'\nNo PV exactly matching "{pv}" was found.\n')
-        return 1
-
-    found_any = False
-    for ioc in iocs:
-        print(f"\n{_bold(ioc)}:")
-        dump = dump_record_path(ioc)
+        ioc = iocs[0]
+        dump = self.dump_record_path(ioc)
         if not os.path.isfile(dump):
-            print(f"  (dbDumpRecord file not found: {dump})")
-            continue
-
-        print(f"  # from: {dump}")
+            raise FileNotFoundError(f"dbDumpRecord file not found: {dump}")
         with open(dump, errors="replace") as fh:
-            record = extract_record(fh, pv)
+            record_lines = self.extract_record(fh, pv)
 
-        if not record:
-            print(f"  (PV is served by {ioc} but no record was found in {dump}.)")
-            continue
-        print("\n".join(record))
-        found_any = True
-
-    print()
-    return 0 if found_any else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        if not record_lines:
+            raise LookupError(f"No record for PV '{pv}' found in {dump}.")
+        record = "\n".join(record_lines)
+        return record
