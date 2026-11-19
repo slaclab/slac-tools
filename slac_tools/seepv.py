@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+from pykern.pkcollections import PKDict
 
 class SeePV:
     WILDCARD_CHARS = ("%", "*")
@@ -141,7 +142,7 @@ class SeePV:
         return record
 
     def see_fields(self, pv=None):
-        """Return the PV's record fields as a {field_name: value} dict.
+        """Return the PV's record fields as a PKDict of {field_name: value}.
 
         Uses the instance's PV if "pv" is not given.  Values are returned as
         strings exactly as they appear in the .dbDumpRecord file.  The record
@@ -151,8 +152,8 @@ class SeePV:
         """
         field_re = re.compile(r'^\s*field\(\s*(\w+)\s*,\s*"(.*)"\s*\)\s*$')
         record = self.see_record(pv)
-        return {
-            m[1]: m[2]
+        return PKDict(
+            (m[1], m[2])
             for line in record.splitlines()
             if (m := field_re.match(line))
-        }
+        )
