@@ -14,6 +14,7 @@ dependencies = [
     "h5py",
     "numpy",
     "pydantic",
+    "pykern",
 ]
 description = "Shared utilities for LCLS high-level applications"
 name = "slac-tools"
