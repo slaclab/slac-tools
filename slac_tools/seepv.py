@@ -19,10 +19,21 @@ import subprocess
 class SeePV:
     WILDCARD_CHARS = ("%", "*")
 
-    def __init__(self):
-        """Raises FileNotFoundError if "findpv" cannot be found on "PATH".
+    def __init__(self, pv=None):
+        """Optionally store a default PV name for the methods to use.
+
+        If "pv" is given, methods called without a PV use it.  A PV passed
+        directly to a method always takes precedence.
+
+        Raises ValueError if "pv" is given but empty or contains wildcard characters.
+        Raises FileNotFoundError if "findpv" cannot be found on "PATH".
         Raises OSError if "IOC_DATA" is not set.
         """
+
+        self.pv = pv
+        # Validate PV name if given
+        if pv is not None:
+            self._resolve_pv(pv)
 
         self.findpv = shutil.which("findpv")
         if not self.findpv:
@@ -32,12 +43,26 @@ class SeePV:
         if not self.ioc_data:
             raise OSError("IOC_DATA is not set.")
 
-    def find_iocs(self, pv):
+    def _resolve_pv(self, pv):
+        """Return "pv" if given, else the instance's PV, after validating it.
+
+        Raises ValueError if no PV is available or it contains wildcards.
+        """
+        pv = pv if pv is not None else self.pv
+        if not pv:
+            raise ValueError("PV name must be provided, either to the method or to SeePV(pv).")
+        if any(c in pv for c in self.WILDCARD_CHARS):
+            raise ValueError(f"PV name '{pv}' contains wildcard characters; exact PV name required.")
+        return pv
+
+    def find_iocs(self, pv=None):
         """Return a list of IOC names serving exactly "pv".
 
         Runs "findpv -s <pv>", which prints "<ioc> <pvname>" lines for
         substring matches, and keeps only lines whose PV name equals "pv".
+        Uses the instance's PV if "pv" is not given.
         """
+        pv = self._resolve_pv(pv)
         result = subprocess.run(
             [self.findpv, "-s", pv],
             capture_output=True,
@@ -56,13 +81,15 @@ class SeePV:
         ioc_data = ioc_data if ioc_data is not None else self.ioc_data
         return os.path.join(ioc_data, ioc, "iocInfo", "IOC.dbDumpRecord")
 
-    def extract_record(self, db_lines, pv):
+    def extract_record(self, db_lines, pv=None):
         """Return the record block for "pv" from dbDumpRecord "db_lines".
 
         Starts at the "record(<type>, "<pv>")" header and tracks brace depth
         until the block closes.  Returns a list of lines (without trailing
         newlines); empty if no matching record is found.
+        Uses the instance's PV if "pv" is not given.
         """
+        pv = self._resolve_pv(pv)
         header = re.compile(r'^record\s*\([^,]*,\s*"' + re.escape(pv) + r'"\s*\)')
         record = []
         in_record = False
@@ -83,21 +110,18 @@ class SeePV:
                     break
         return record
 
-    def see_record(self, pv):
+    def see_record(self, pv=None):
         """Return the record definition given a PV name.
+        Uses the instance's PV if "pv" is not given.
         If a PV is found on more than one IOC, only the record on the first IOC
         returned by findpv is returned.
-        Raises ValueError if "pv" is empty or contains wildcard characters.
+        Raises ValueError if no PV is given or it contains wildcard characters.
         Raises LookupError if no IOC is found or if the record is not found in the IOC's
         .dbDumpRecord file.
         Raises FileNotFoundError if the .dbDumpRecord file does not exist.
         Raises subprocess.CalledProcessError if findpv exits with an error.
         """
-        if not pv:
-            raise ValueError("PV name must be provided.")
-
-        if any(c in pv for c in self.WILDCARD_CHARS):
-            raise ValueError(f"PV name '{pv}' contains wildcard characters; exact PV name required.")
+        pv = self._resolve_pv(pv)
 
         iocs = self.find_iocs(pv)
 
@@ -115,3 +139,20 @@ class SeePV:
             raise LookupError(f"No record for PV '{pv}' found in {dump}.")
         record = "\n".join(record_lines)
         return record
+
+    def see_fields(self, pv=None):
+        """Return the PV's record fields as a {field_name: value} dict.
+
+        Uses the instance's PV if "pv" is not given.  Values are returned as
+        strings exactly as they appear in the .dbDumpRecord file.  The record
+        header and info() lines are skipped.
+
+        Raises the same exceptions as see_record.
+        """
+        field_re = re.compile(r'^\s*field\(\s*(\w+)\s*,\s*"(.*)"\s*\)\s*$')
+        record = self.see_record(pv)
+        return {
+            m[1]: m[2]
+            for line in record.splitlines()
+            if (m := field_re.match(line))
+        }
