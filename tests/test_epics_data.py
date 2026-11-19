@@ -36,6 +36,18 @@ import slac_tools.epics_data
 from slac_tools.epics_data import get_archived, get_live
 
 
+def test_import_without_slac_db():
+    # slac-db is optional; downstream packages (e.g. slac-timing) import
+    # slac_tools only for LazyPV and must not need it installed.
+    import subprocess
+
+    code = (
+        "import sys; sys.modules['slac_db'] = None; "
+        "import slac_tools; from slac_tools import LazyPV"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
 # ---------------------------------------------------------------------------
 # get_live
 # ---------------------------------------------------------------------------

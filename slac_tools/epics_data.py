@@ -9,7 +9,7 @@ import ast
 import logging
 import re
 from datetime import datetime, timezone
-import slac_db.device
+
 log = logging.getLogger(__name__)
 
 
@@ -233,6 +233,10 @@ def get_archived_values_for_device(
         ``{'bdes': {'pv': 'QUAD:IN20:525:BDES', 'value': -3.37}}``.
         PVs with no archived value have ``'value': None``.
     """
+    # Lazy import: slac-db is optional, so ``import slac_tools`` (e.g. for
+    # LazyPV) must not require it.
+    import slac_db.device
+
     if at_time is None:
         at_time = datetime.now(timezone.utc)
     accessor_to_pv = slac_db.device.get_all_accessors(device_name)
